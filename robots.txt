@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://www.taikoomusic.com/sitemap.xml
+Sitemap: https://www.kittylau.com/sitemap.xml
