@@ -633,51 +633,146 @@ Error generating stack: `+l.message+`
     });
     </script>
 
-    <!-- Fix: Form horizontal overflow + rename labels to Student -->
+    <!-- Fix: Form horizontal overflow + custom dropdowns -->
     <style>
-      /* Prevent horizontal scroll on mobile */
       html, body { overflow-x: hidden !important; max-width: 100vw !important; }
       [role="dialog"] { max-width: 95vw !important; overflow-x: hidden !important; }
       [role="dialog"] > div { max-width: 100% !important; overflow-x: hidden !important; }
+      .custom-select { width: 100%; padding: 8px 12px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 14px; background: #fff; color: #374151; appearance: auto; cursor: pointer; }
+      .custom-select:focus { outline: none; border-color: #BA977B; box-shadow: 0 0 0 2px rgba(186,151,123,0.2); }
     </style>
     <script>
     document.addEventListener('DOMContentLoaded', function() {
+      var isZh = window.location.pathname.indexOf('/zh') !== -1;
+      var nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+      var textareaSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+
+      function setReactValue(input, val) {
+        if (input.tagName === 'TEXTAREA') {
+          textareaSetter.call(input, val);
+        } else {
+          nativeSetter.call(input, val);
+        }
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+
+      function findFieldByLabel(dialog, labelTexts) {
+        var found = null;
+        dialog.querySelectorAll('label').forEach(function(label) {
+          var t = label.textContent.replace(/\*/g, '').trim();
+          if (labelTexts.indexOf(t) !== -1) found = label;
+        });
+        return found;
+      }
+
+      function getFieldContainer(label) {
+        var el = label.parentElement;
+        while (el && !el.querySelector('input, textarea, select')) {
+          el = el.parentElement;
+        }
+        return el;
+      }
+
+      function makeDropdown(input, options, placeholderText) {
+        if (input.dataset.dropdownDone) return;
+        input.dataset.dropdownDone = '1';
+        input.style.display = 'none';
+        var sel = document.createElement('select');
+        sel.className = 'custom-select';
+        var defOpt = document.createElement('option');
+        defOpt.value = '';
+        defOpt.textContent = placeholderText;
+        defOpt.disabled = true;
+        defOpt.selected = true;
+        sel.appendChild(defOpt);
+        options.forEach(function(o) {
+          var opt = document.createElement('option');
+          opt.value = o;
+          opt.textContent = o;
+          sel.appendChild(opt);
+        });
+        sel.addEventListener('change', function() {
+          setReactValue(input, sel.value);
+        });
+        input.parentNode.insertBefore(sel, input.nextSibling);
+      }
+
       var formObs = new MutationObserver(function() {
         var dialog = document.querySelector('[role="dialog"]');
         if (!dialog) return;
-        var labels = dialog.querySelectorAll('label');
-        labels.forEach(function(label) {
-          var text = label.textContent.trim();
-          // English replacements
-          if (text === "Parent's Name" || text === "Parent's Name*")
-            label.innerHTML = label.innerHTML.replace("Parent's Name", "Student Name");
-          if (text === "Child's Age" || text === "Child's Age*")
-            label.innerHTML = label.innerHTML.replace("Child's Age", "Student Age");
-          // Chinese replacements
-          if (text === "家長姓名" || text === "家長姓名*")
-            label.innerHTML = label.innerHTML.replace("家長姓名", "學生姓名");
-          if (text === "孩子年齡" || text === "孩子年齡*")
-            label.innerHTML = label.innerHTML.replace("孩子年齡", "學生年齡");
-        });
-        var inputs = dialog.querySelectorAll('input, textarea');
-        inputs.forEach(function(input) {
+
+        // 1. Rename Parent's Name → Inquirer Name
+        var nameLabel = findFieldByLabel(dialog, ["Parent's Name", "Student Name", "家長姓名", "學生姓名"]);
+        if (nameLabel) {
+          var lt = nameLabel.textContent.replace(/\*/g, '').trim();
+          if (lt === "Parent's Name" || lt === "Student Name")
+            nameLabel.innerHTML = nameLabel.innerHTML.replace(/Parent's Name|Student Name/, "Inquirer Name");
+          if (lt === "家長姓名" || lt === "學生姓名")
+            nameLabel.innerHTML = nameLabel.innerHTML.replace(/家長姓名|學生姓名/, "查詢者姓名");
+        }
+
+        // Update name placeholder
+        dialog.querySelectorAll('input').forEach(function(input) {
           var ph = input.getAttribute('placeholder') || '';
-          if (ph === 'Your name') input.setAttribute('placeholder', 'Student name');
-          if (ph === '您的姓名') input.setAttribute('placeholder', '學生姓名');
-          if (ph.indexOf('your child') !== -1)
-            input.setAttribute('placeholder', ph.replace('your child', 'the student'));
-          if (ph.indexOf('Has your child') !== -1)
-            input.setAttribute('placeholder', 'Any prior instrument experience? For how long?');
-          if (ph.indexOf('您的孩子') !== -1)
-            input.setAttribute('placeholder', ph.replace('您的孩子', '學生'));
+          if (ph === 'Your name' || ph === 'Student name')
+            input.setAttribute('placeholder', 'Parent or student name');
+          if (ph === '您的姓名' || ph === '學生姓名')
+            input.setAttribute('placeholder', '家長或學生姓名');
         });
+
+        // 2. Music Experience → dropdown
+        var expLabel = findFieldByLabel(dialog, ["Music Experience", "Music Experience (optional)", "音樂經驗", "音樂經驗（選填）"]);
+        if (expLabel) {
+          var container = getFieldContainer(expLabel);
+          if (container) {
+            var expInput = container.querySelector('input, textarea');
+            if (expInput && !expInput.dataset.dropdownDone) {
+              var expOpts = isZh
+                ? ['少於1年', '1-3年', '3年或以上']
+                : ['Less than 1 year', '1-3 years', '3 years or above'];
+              var expPh = isZh ? '請選擇' : 'Please select';
+              makeDropdown(expInput, expOpts, expPh);
+            }
+          }
+        }
+
+        // 3. Child's Age → Student Level dropdown + move after Music Experience
+        var ageLabel = findFieldByLabel(dialog, ["Child's Age", "Student Age", "孩子年齡", "學生年齡"]);
+        if (ageLabel) {
+          var newLabelText = isZh ? "學生級別" : "Student Level";
+          var lt2 = ageLabel.textContent.replace(/\*/g, '').trim();
+          if (lt2 !== newLabelText) {
+            ageLabel.innerHTML = ageLabel.innerHTML.replace(/Child's Age|Student Age|孩子年齡|學生年齡/, newLabelText);
+          }
+          var ageContainer = getFieldContainer(ageLabel);
+          if (ageContainer) {
+            var ageInput = ageContainer.querySelector('input, textarea');
+            if (ageInput && !ageInput.dataset.dropdownDone) {
+              var lvlOpts = isZh
+                ? ['幼稚園', '小學', '中學', '成人']
+                : ['Kindergarten', 'Primary School', 'Secondary School', 'Adult'];
+              var lvlPh = isZh ? '請選擇' : 'Please select';
+              makeDropdown(ageInput, lvlOpts, lvlPh);
+            }
+            // Move Student Level after Music Experience
+            if (expLabel) {
+              var expContainer = getFieldContainer(expLabel);
+              if (expContainer && ageContainer !== expContainer && expContainer.parentNode) {
+                expContainer.parentNode.insertBefore(ageContainer, expContainer.nextSibling);
+              }
+            }
+          }
+        }
+
+        // Update description text
         var desc = dialog.querySelector('p');
         if (desc) {
           var dt = desc.textContent || '';
           if (dt.indexOf("child's musical") !== -1)
-            desc.textContent = "Tell me a bit about the student's musical background so I can prepare the perfect first lesson.";
+            desc.textContent = "Tell me about the inquirer so I can prepare the perfect first lesson.";
           if (dt.indexOf('孩子的音樂') !== -1)
-            desc.textContent = '請告訴我學生的音樂背景，讓我為第一堂課做好準備。';
+            desc.textContent = '請告訴我查詢者的背景，讓我為第一堂課做好準備。';
         }
       });
       formObs.observe(document.body, { childList: true, subtree: true });
@@ -735,8 +830,8 @@ Error generating stack: `+l.message+`
           if (data) {
             var parts = [];
             if (data.parentName) parts.push('Name: ' + data.parentName);
-            if (data.childAge) parts.push('Child age: ' + data.childAge);
-            if (data.musicExperience) parts.push('Experience: ' + data.musicExperience);
+            if (data.musicExperience) parts.push('Music Experience: ' + data.musicExperience);
+            if (data.childAge) parts.push('Student Level: ' + data.childAge);
             if (data.lessonType) parts.push('Instrument: ' + data.lessonType);
             if (data.location) parts.push('Location: ' + data.location);
             if (data.additionalNotes) parts.push('Notes: ' + data.additionalNotes);
